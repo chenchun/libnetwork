@@ -188,6 +188,11 @@ func (d *dnetConnection) dnetDaemon() error {
 		fmt.Println("Error starting dnetDaemon :", err)
 		return err
 	}
+	err = controller.Start()
+	if err != nil {
+		fmt.Println("Error starting dnetDaemon :", err)
+		return err
+	}
 	createDefaultNetwork(controller)
 	httpHandler := api.NewHTTPHandler(controller)
 	r := mux.NewRouter().StrictSlash(false)

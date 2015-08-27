@@ -42,14 +42,7 @@ func (c *controller) initGlobalStore() error {
 	c.Lock()
 	c.globalStore = store
 	c.Unlock()
-
-	nws, err := c.getNetworksFromGlobalStore()
-	if err == nil {
-		c.processNetworkUpdate(nws, nil)
-	} else if err != datastore.ErrKeyNotFound {
-		log.Warnf("failed to read networks from globalstore during init : %v", err)
-	}
-	return c.watchNetworks()
+	return nil
 }
 
 func (c *controller) initLocalStore() error {
@@ -63,20 +56,33 @@ func (c *controller) initLocalStore() error {
 	c.Lock()
 	c.localStore = localStore
 	c.Unlock()
-
-	nws, err := c.getNetworksFromLocalStore()
-	if err == nil {
-		c.processNetworkUpdate(nws, nil)
-	} else if err != datastore.ErrKeyNotFound {
-		log.Warnf("failed to read networks from localstore during init : %v", err)
-	}
-	eps, err := c.getEndpointsFromLocalStore()
-	if err == nil {
-		c.processEndpointsUpdate(eps, nil)
-	} else if err != datastore.ErrKeyNotFound {
-		log.Warnf("failed to read endpoints from localstore during init : %v", err)
-	}
 	return nil
+}
+
+func (c *controller) processObjectsFromStore() error {
+	if c.globalStore != nil {
+		nws, err := c.getNetworksFromGlobalStore()
+		if err == nil {
+			c.processNetworkUpdate(nws, nil)
+		} else if err != datastore.ErrKeyNotFound {
+			log.Warnf("failed to read networks from globalstore during init : %v", err)
+		}
+	}
+	if c.localStore != nil {
+		nws, err := c.getNetworksFromLocalStore()
+		if err == nil {
+			c.processNetworkUpdate(nws, nil)
+		} else if err != datastore.ErrKeyNotFound {
+			log.Warnf("failed to read networks from localstore during init : %v", err)
+		}
+		eps, err := c.getEndpointsFromLocalStore()
+		if err == nil {
+			c.processEndpointsUpdate(eps, nil)
+		} else if err != datastore.ErrKeyNotFound {
+			log.Warnf("failed to read endpoints from localstore during init : %v", err)
+		}
+	}
+	return c.watchNetworks()
 }
 
 func (c *controller) getNetworksFromGlobalStore() ([]*store.KVPair, error) {
@@ -86,11 +92,41 @@ func (c *controller) getNetworksFromGlobalStore() ([]*store.KVPair, error) {
 	return cs.KVStore().List(datastore.Key(datastore.NetworkKeyPrefix))
 }
 
+func (c *controller) getNetworkByNameFromLocalStore(name string) *network {
+	nws, err := c.getNetworksFromLocalStore()
+	if err != nil && err != datastore.ErrKeyNotFound {
+		return nil
+	}
+
+	for _, kve := range nws {
+		var ln network
+		err := json.Unmarshal(kve.Value, &ln)
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+		if ln.Name() == name {
+			ln.SetIndex(kve.LastIndex)
+			return &ln
+		}
+	}
+	return nil
+}
+
 func (c *controller) newNetworkFromStore(n *network) error {
-	n.Lock()
-	n.ctrlr = c
-	n.endpoints = endpointTable{}
-	n.Unlock()
+	// Check if a network already exists with the specified network name
+	c.Lock()
+	for _, cn := range c.networks {
+		if n.name == cn.name {
+			c.Unlock()
+			return NetworkNameError(cn.name)
+		}
+	}
+	c.Unlock()
+
+	if err := c.setupNetwork(n); err != nil {
+		return err
+	}
 
 	return c.addNetwork(n)
 }
@@ -303,7 +339,9 @@ func (c *controller) processNetworkUpdate(nws []*store.KVPair, prune *networkTab
 		}
 
 		if err = c.newNetworkFromStore(&n); err != nil {
-			log.Error(err)
+			if _, ok := err.(NetworkNameError); !ok {
+				log.Error(err)
+			}
 		}
 	}
 }

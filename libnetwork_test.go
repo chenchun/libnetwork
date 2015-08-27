@@ -68,6 +68,10 @@ func createController() error {
 	if err != nil {
 		return err
 	}
+	err = controller.Start()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -1900,6 +1904,10 @@ func TestInvalidRemoteDriver(t *testing.T) {
 	}
 
 	controller, err := libnetwork.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Start()
 	if err != nil {
 		t.Fatal(err)
 	}
