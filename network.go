@@ -226,6 +226,9 @@ func (n *network) Delete() error {
 	n.Unlock()
 
 	ctrlr.Lock()
+	if !ctrlr.started {
+		return types.ForbiddenErrorf("cannot delete a network on a stopped controller")
+	}
 	_, ok := ctrlr.networks[n.id]
 	ctrlr.Unlock()
 
@@ -279,6 +282,9 @@ func (n *network) deleteNetwork() error {
 
 func (n *network) addEndpoint(ep *endpoint) error {
 	var err error
+	if !n.ctrlr.started {
+		return types.ForbiddenErrorf("cannot add an endpoint on a stopped controller")
+	}
 	n.Lock()
 	n.endpoints[ep.id] = ep
 	d := n.driver

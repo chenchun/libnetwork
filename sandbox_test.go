@@ -26,6 +26,11 @@ func getTestEnv(t *testing.T) (NetworkController, Network, Network) {
 		t.Fatal(err)
 	}
 
+	err = c.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	option := options.Generic{
 		"EnableIPForwarding": true,
 	}

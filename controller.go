@@ -69,6 +69,8 @@ type NetworkController interface {
 	// ConfigureNetworkDriver applies the passed options to the driver instance for the specified network type
 	ConfigureNetworkDriver(networkType string, options map[string]interface{}) error
 
+	// Start method starts the controller
+	Start() error
 	// Config method returns the bootup configuration for the controller
 	Config() config.Config
 
@@ -128,6 +130,7 @@ type controller struct {
 	sandboxes               sandboxTable
 	cfg                     *config.Config
 	globalStore, localStore datastore.DataStore
+	started                 bool
 	sync.Mutex
 }
 
@@ -164,6 +167,15 @@ func New(cfgOptions ...config.Option) (NetworkController, error) {
 	}
 
 	return c, nil
+}
+
+// Start method starts the controller
+func (c *controller) Start() error {
+	if c.started {
+		return types.ForbiddenErrorf("cannot start a controller that is already started")
+	}
+	c.started = true
+	return c.processObjectsFromStore()
 }
 
 func (c *controller) validateHostDiscoveryConfig() bool {
@@ -236,13 +248,6 @@ func (c *controller) RegisterDriver(networkType string, driver driverapi.Driver,
 		opt[netlabel.KVProviderURL] = c.cfg.GlobalStore.Client.Address
 	}
 
-	if capability.DataScope == datastore.LocalScope {
-		localStoreConfig := c.getLocalStoreConfig(c.cfg)
-		opt[netlabel.KVProvider] = localStoreConfig.Client.Provider
-		opt[netlabel.KVProviderURL] = localStoreConfig.Client.Address
-		opt[netlabel.KVProviderConfig] = localStoreConfig.Client.Config
-	}
-
 	c.Unlock()
 
 	if len(opt) != 0 {
@@ -281,6 +286,21 @@ func (c *controller) NewNetwork(networkType, name string, options ...NetworkOpti
 
 	network.processOptions(options...)
 
+	if !c.started {
+		// Global stores are watched only when the controller enters the 'started' state.
+		// Hence, its expected that we could possibly get a newNetwork create call only
+		// for locally scoped networks
+		n := c.getNetworkByNameFromLocalStore(name)
+		if n != nil {
+			n.generic = network.generic
+			network = n
+		}
+	}
+
+	if err := c.setupNetwork(network); err != nil {
+		return nil, err
+	}
+
 	if err := c.addNetwork(network); err != nil {
 		return nil, err
 	}
@@ -296,8 +316,7 @@ func (c *controller) NewNetwork(networkType, name string, options ...NetworkOpti
 	return network, nil
 }
 
-func (c *controller) addNetwork(n *network) error {
-
+func (c *controller) setupNetwork(n *network) error {
 	c.Lock()
 	// Check if a driver for the specified network type is available
 	dd, ok := c.drivers[n.networkType]
@@ -312,14 +331,19 @@ func (c *controller) addNetwork(n *network) error {
 	}
 
 	n.Lock()
+	n.ctrlr = c
+	n.endpoints = endpointTable{}
 	n.svcRecords = svcMap{}
 	n.driver = dd.driver
 	n.dataScope = dd.capability.DataScope
-	d := n.driver
 	n.Unlock()
+	return nil
+}
+
+func (c *controller) addNetwork(n *network) error {
 
 	// Create the network
-	if err := d.CreateNetwork(n.id, n.generic); err != nil {
+	if err := n.driver.CreateNetwork(n.id, n.generic); err != nil {
 		return err
 	}
 	if err := n.watchEndpoints(); err != nil {
