@@ -92,6 +92,9 @@ type bridgeEndpoint struct {
 	config          *endpointConfiguration // User specified parameters
 	containerConfig *containerConfiguration
 	portMapping     []types.PortBinding // Operation port bindings
+	network         *bridgeNetwork
+	dbIndex         uint64
+	dbExists        bool
 }
 
 type bridgeNetwork struct {
@@ -990,6 +993,11 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 	// Program any required port mapping and store them in the endpoint
 	endpoint.portMapping, err = n.allocatePorts(epConfig, endpoint, config.DefaultBindingIP, d.config.EnableUserlandProxy)
 	if err != nil {
+		return err
+	}
+
+	endpoint.network = n
+	if err = d.storeUpdate(endpoint); err != nil {
 		return err
 	}
 
