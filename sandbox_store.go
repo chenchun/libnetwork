@@ -166,7 +166,7 @@ func (sb *sandbox) storeDelete() error {
 	return sb.controller.deleteFromStore(sbs)
 }
 
-func (c *controller) sandboxCleanup() {
+func (c *controller) populateSandbox() {
 	store := c.getStore(datastore.LocalScope)
 	if store == nil {
 		logrus.Errorf("Could not find local scope store while trying to cleanup sandboxes")
@@ -226,8 +226,8 @@ func (c *controller) sandboxCleanup() {
 			heap.Push(&sb.endpoints, ep)
 		}
 
-		if err := sb.Delete(); err != nil {
-			logrus.Errorf("failed to delete sandbox %s while trying to cleanup: %v", sb.id, err)
-		}
+		c.Lock()
+		c.sandboxes[sb.id] = sb
+		c.Unlock()
 	}
 }

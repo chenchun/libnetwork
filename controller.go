@@ -194,8 +194,7 @@ func New(cfgOptions ...config.Option) (NetworkController, error) {
 		return nil, err
 	}
 
-	c.sandboxCleanup()
-	c.cleanupLocalEndpoints()
+	c.populateSandbox()
 
 	if err := c.startExternalKeyListener(); err != nil {
 		return nil, err
